@@ -1,0 +1,16 @@
+.userAvatar{
+    width: 100%;
+    height: fit-content;
+    gap: 8px;
+    justify-content: space-between;
+    padding: 10px 0px !important;
+}
+
+.menuList{
+    z-index: 9999 !important;
+    min-width: 250px !important;
+    border: 1px solid var(--color-border) !important;
+    overflow: hidden;
+    padding: 0px !important;
+    background-color: rgba(0, 0, 0) !important;
+}

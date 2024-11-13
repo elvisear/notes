@@ -1,0 +1,8 @@
+#root, .dashboard {
+  margin: 0 auto;
+  text-align: center;
+  background-color: #262626 !important;
+  height: inherit;
+  width: inherit;
+  color: var(--color-text-secondary);
+}

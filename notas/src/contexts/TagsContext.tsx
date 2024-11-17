@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react'
+import { useAuth } from './AuthContext'
 
 export interface Tag {
   id: string
+  userId: string
   name: string
   color: string
   createdAt: Date
@@ -31,114 +33,181 @@ const DEFAULT_COLORS = [
 ]
 
 export function TagsProvider({ children }: { children: ReactNode }) {
-  const [tags, setTags] = useState<Tag[]>([])
-  const [noteTagsMap, setNoteTagsMap] = useState<Record<string, string[]>>({})
-
-// Função para calcular contagens
-const calculateTagCounts = useCallback((tagsList: Tag[], notesMap: Record<string, string[]>) => {
-  return tagsList.map(tag => {
-    // Conta quantas notas contêm esta tag
-    const count = Object.values(notesMap).reduce((total, noteTags) => {
-      return total + (noteTags.includes(tag.id) ? 1 : 0)
-    }, 0)
-    
-    return { ...tag, notesCount: count }
-  })
-}, [])
-
-// Função para atualizar todas as tags de uma nota
-const updateNoteTags = useCallback((noteId: string, tagIds: string[]) => {
-  setNoteTagsMap(prev => {
-    const newMap = {
-      ...prev,
-      [noteId]: tagIds
-    }
-    
-    localStorage.setItem('@Evernote:noteTagsMap', JSON.stringify(newMap))
-    
-    // Atualiza as contagens imediatamente
-    setTags(prevTags => {
-      const updatedTags = calculateTagCounts(prevTags, newMap)
-      localStorage.setItem('@Evernote:tags', JSON.stringify(updatedTags))
-      return updatedTags
-    })
-    
-    return newMap
-  })
-}, [calculateTagCounts])
-
-const addTagToNote = useCallback((noteId: string, tagId: string) => {
-  setNoteTagsMap(prev => {
-    const noteTags = prev[noteId] || []
-    if (noteTags.includes(tagId)) return prev
-
-    const newMap = {
-      ...prev,
-      [noteId]: [...noteTags, tagId]
-    }
-    
-    localStorage.setItem('@Evernote:noteTagsMap', JSON.stringify(newMap))
-    
-    // Atualiza as contagens imediatamente
-    setTags(prevTags => {
-      const updatedTags = calculateTagCounts(prevTags, newMap)
-      localStorage.setItem('@Evernote:tags', JSON.stringify(updatedTags))
-      return updatedTags
-    })
-
-    return newMap
-  })
-}, [calculateTagCounts])
-
-const removeTagFromNote = useCallback((noteId: string, tagId: string) => {
-  setNoteTagsMap(prev => {
-    const noteTags = prev[noteId] || []
-    if (!noteTags.includes(tagId)) return prev
-
-    const newMap = {
-      ...prev,
-      [noteId]: noteTags.filter(id => id !== tagId)
-    }
-    
-    localStorage.setItem('@Evernote:noteTagsMap', JSON.stringify(newMap))
-    
-    // Atualiza as contagens imediatamente
-    setTags(prevTags => {
-      const updatedTags = calculateTagCounts(prevTags, newMap)
-      localStorage.setItem('@Evernote:tags', JSON.stringify(updatedTags))
-      return updatedTags
-    })
-
-    return newMap
-  })
-}, [calculateTagCounts])
-
-  // Carrega os dados iniciais
-  useEffect(() => {
+  const { user } = useAuth()
+  const [tags, setTags] = useState<Tag[]>(() => {
+    const storedTags = localStorage.getItem('@Evernote:tags')
+    if (!storedTags) return []
     try {
-      const storedTags = localStorage.getItem('@Evernote:tags')
-      const storedMap = localStorage.getItem('@Evernote:noteTagsMap')
-      
-      console.log('=== Carregando dados iniciais ===')
-      console.log('StoredTags:', storedTags)
-      console.log('StoredMap:', storedMap)
-      
-      if (!storedTags || !storedMap) return
-      
-      const parsedTags: Tag[] = JSON.parse(storedTags)
-      const notesMap: Record<string, string[]> = JSON.parse(storedMap)
-      
-      setNoteTagsMap(notesMap)
-      const tagsWithCounts = calculateTagCounts(parsedTags, notesMap)
-      setTags(tagsWithCounts)
-    } catch (error) {
-      console.error('Erro ao carregar tags:', error)
+      return JSON.parse(storedTags)
+    } catch {
+      return []
     }
-  }, [calculateTagCounts])
+  })
+  
+  const [noteTagsMap, setNoteTagsMap] = useState<Record<string, string[]>>(() => {
+    const storedMap = localStorage.getItem('@Evernote:noteTagsMap')
+    return storedMap ? JSON.parse(storedMap) : {}
+  })
+
+  // Monitora mudanças nas notas
+  useEffect(() => {
+    if (!user) return
+
+    const handleStorageChange = () => {
+      const storedNotes = localStorage.getItem('@Evernote:notes')
+      if (!storedNotes) return
+
+      const allNotes = JSON.parse(storedNotes)
+      const userNotes = allNotes.filter((note: any) => note.userId === user.id)
+
+      setTags(prevTags => {
+        const updatedTags = prevTags.map(tag => {
+          if (tag.userId !== user.id) return tag
+
+          // Conta notas que contêm esta tag
+          const count = userNotes.reduce((total: number, note: any) => {
+            return note.tags?.includes(tag.id) ? total + 1 : total
+          }, 0)
+
+          return { ...tag, notesCount: count }
+        })
+
+        localStorage.setItem('@Evernote:tags', JSON.stringify(updatedTags))
+        return updatedTags
+      })
+    }
+
+    // Atualiza contagens iniciais
+    handleStorageChange()
+
+    // Adiciona listener para mudanças no localStorage
+    window.addEventListener('storage', handleStorageChange)
+    
+    // Cria um evento customizado para mudanças locais
+    const notesChangeEvent = new Event('notesChange')
+    const originalSetItem = localStorage.setItem
+    localStorage.setItem = function(key: string, value: string) {
+      if (key === '@Evernote:notes') {
+        originalSetItem.apply(this, [key, value])
+        window.dispatchEvent(notesChangeEvent)
+      } else {
+        originalSetItem.apply(this, [key, value])
+      }
+    }
+
+    // Adiciona listener para o evento customizado
+    window.addEventListener('notesChange', handleStorageChange)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('notesChange', handleStorageChange)
+      localStorage.setItem = originalSetItem
+    }
+  }, [user])
+
+  const addTagToNote = useCallback((noteId: string, tagId: string) => {
+    if (!user) return
+
+    const storedNotes = localStorage.getItem('@Evernote:notes')
+    const allNotes = storedNotes ? JSON.parse(storedNotes) : []
+    let wasUpdated = false
+    
+    const updatedNotes = allNotes.map((note: any) => {
+      if (note.id === noteId && note.userId === user.id) {
+        const currentTags = note.tags || []
+        if (!currentTags.includes(tagId)) {
+          wasUpdated = true
+          return { ...note, tags: [...currentTags, tagId] }
+        }
+      }
+      return note
+    })
+
+    if (wasUpdated) {
+      localStorage.setItem('@Evernote:notes', JSON.stringify(updatedNotes))
+    }
+  }, [user])
+
+  const removeTagFromNote = useCallback((noteId: string, tagId: string) => {
+    if (!user) return
+
+    const storedNotes = localStorage.getItem('@Evernote:notes')
+    const allNotes = storedNotes ? JSON.parse(storedNotes) : []
+    let wasUpdated = false
+    
+    const updatedNotes = allNotes.map((note: any) => {
+      if (note.id === noteId && note.userId === user.id) {
+        const currentTags = note.tags || []
+        if (currentTags.includes(tagId)) {
+          wasUpdated = true
+          return {
+            ...note,
+            tags: currentTags.filter((id: string) => id !== tagId)
+          }
+        }
+      }
+      return note
+    })
+
+    if (wasUpdated) {
+      localStorage.setItem('@Evernote:notes', JSON.stringify(updatedNotes))
+    }
+  }, [user])
+
+  const updateNoteTags = useCallback((noteId: string, tagIds: string[]) => {
+    if (!user) return
+
+    const storedNotes = localStorage.getItem('@Evernote:notes')
+    const allNotes = storedNotes ? JSON.parse(storedNotes) : []
+    let wasUpdated = false
+    
+    const updatedNotes = allNotes.map((note: any) => {
+      if (note.id === noteId && note.userId === user.id) {
+        const currentTags = note.tags || []
+        if (JSON.stringify(currentTags) !== JSON.stringify(tagIds)) {
+          wasUpdated = true
+          return { ...note, tags: tagIds }
+        }
+      }
+      return note
+    })
+
+    if (wasUpdated) {
+      localStorage.setItem('@Evernote:notes', JSON.stringify(updatedNotes))
+    }
+  }, [user])
+
+  const removeTagFromAllNotes = useCallback((tagId: string) => {
+    if (!user) return
+
+    const storedNotes = localStorage.getItem('@Evernote:notes')
+    const allNotes = storedNotes ? JSON.parse(storedNotes) : []
+    let wasUpdated = false
+
+    const updatedNotes = allNotes.map((note: any) => {
+      if (note.userId === user.id && note.tags?.includes(tagId)) {
+        wasUpdated = true
+        return {
+          ...note,
+          tags: note.tags.filter((id: string) => id !== tagId)
+        }
+      }
+      return note
+    })
+
+    if (wasUpdated) {
+      localStorage.setItem('@Evernote:notes', JSON.stringify(updatedNotes))
+    }
+  }, [user])
 
   const createTag = useCallback((name: string, color?: string): Tag => {
+    if (!user) throw new Error('Usuário não autenticado')
+
     const normalizedName = name.toLowerCase().trim()
-    const existingTag = tags.find(tag => tag.name.toLowerCase() === normalizedName)
+    const existingTag = tags.find(tag => 
+      tag.name.toLowerCase() === normalizedName && 
+      tag.userId === user.id
+    )
     
     if (existingTag) {
       return existingTag
@@ -146,50 +215,32 @@ const removeTagFromNote = useCallback((noteId: string, tagId: string) => {
 
     const newTag: Tag = {
       id: crypto.randomUUID(),
+      userId: user.id, // Garante que a tag tenha o userId
       name: name.trim(),
       color: color || DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)],
       createdAt: new Date(),
       notesCount: 0
     }
 
+    // Mantém as tags de outros usuários e adiciona a nova
     const newTags = [...tags, newTag]
     setTags(newTags)
     localStorage.setItem('@Evernote:tags', JSON.stringify(newTags))
     
     return newTag
-  }, [tags])
+  }, [tags, user])
 
-  const removeTagFromAllNotes = useCallback((tagId: string) => {
-    const newNoteTagsMap = Object.fromEntries(
-      Object.entries(noteTagsMap).map(([noteId, noteTags]) => [
-        noteId,
-        noteTags.filter(id => id !== tagId)
-      ])
-    )
+  const deleteTag = useCallback((id: string) => {
+    if (!user) return
+
     setTags(prev => {
-      const newTags = prev.map(tag => 
-        tag.id === tagId 
-          ? { ...tag, notesCount: 0 }
-          : tag
+      const newTags = prev.filter(tag => 
+        !(tag.id === id && tag.userId === user.id)
       )
       localStorage.setItem('@Evernote:tags', JSON.stringify(newTags))
       return newTags
     })
-    setNoteTagsMap(newNoteTagsMap)
-  }, [tags, noteTagsMap])
 
-  const deleteTag = useCallback((id: string) => {
-    console.log('=== Deletando tag ===')
-    console.log('TagId:', id)
-
-    // Remove a tag da lista de tags
-    setTags(prev => {
-      const newTags = prev.filter(tag => tag.id !== id)
-      localStorage.setItem('@Evernote:tags', JSON.stringify(newTags))
-      return newTags
-    })
-
-    // Remove a tag de todas as notas
     setNoteTagsMap(prev => {
       const newMap = Object.fromEntries(
         Object.entries(prev).map(([noteId, noteTags]) => [
@@ -197,27 +248,34 @@ const removeTagFromNote = useCallback((noteId: string, tagId: string) => {
           noteTags.filter(tagId => tagId !== id)
         ])
       )
-      console.log('Novo mapa após deletar tag:', newMap)
       localStorage.setItem('@Evernote:noteTagsMap', JSON.stringify(newMap))
       return newMap
     })
-  }, [])
+  }, [user])
 
   const updateTag = useCallback((id: string, data: Partial<Tag>) => {
-    const newTags = tags.map(tag =>
-      tag.id === id ? { ...tag, ...data } : tag
-    )
-    setTags(newTags)
-    localStorage.setItem('@Evernote:tags', JSON.stringify(newTags))
-  }, [tags])
+    if (!user) return
+
+    setTags(prev => {
+      const newTags = prev.map(tag =>
+        tag.id === id && tag.userId === user.id ? { ...tag, ...data } : tag
+      )
+      localStorage.setItem('@Evernote:tags', JSON.stringify(newTags))
+      return newTags
+    })
+  }, [user])
 
   const getTagById = useCallback((id: string) => {
     return tags.find(tag => tag.id === id)
   }, [tags])
 
   const getTagByName = useCallback((name: string) => {
-    return tags.find(tag => tag.name.toLowerCase() === name.toLowerCase().trim())
-  }, [tags])
+    if (!user) return undefined
+    return tags.find(tag => 
+      tag.name.toLowerCase() === name.toLowerCase().trim() && 
+      tag.userId === user.id
+    )
+  }, [tags, user])
 
   const getNoteTags = useCallback((noteId: string): Tag[] => {
     const tagIds = noteTagsMap[noteId] || []
@@ -233,7 +291,7 @@ const removeTagFromNote = useCallback((noteId: string, tagId: string) => {
 
   return (
     <TagsContext.Provider value={{
-      tags,
+      tags: user ? tags.filter(tag => tag.userId === user.id) : [],
       createTag,
       deleteTag,
       updateTag,

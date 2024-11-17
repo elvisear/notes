@@ -1,123 +1,90 @@
-import {
-  Box,
-  Button,
-  FormControl,
-  FormLabel,
-  Input,
-  VStack,
-  Text,
-  Link as ChakraLink,
-  useToast,
-  Image,
-  Heading
-} from '@chakra-ui/react'
-import { useState } from 'react'
+import { useState, FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
   const { signIn } = useAuth()
-  const toast = useToast()
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
+    setError('')
+
+    if (!email || !password) {
+      setError('Por favor, preencha todos os campos')
+      return
+    }
 
     try {
+      // Limpar completamente o estado anterior
+      localStorage.removeItem('@Evernote:notes')
+      localStorage.removeItem('@Evernote:pinnedTags')
+      localStorage.removeItem('@Evernote:selectedTags')
+      
       await signIn(email, password)
-      toast({
-        title: 'Login realizado com sucesso!',
-        status: 'success',
-        duration: 3000,
-        isClosable: true,
-      })
-    } catch (error: any) {
-      toast({
-        title: 'Erro ao fazer login',
-        description: error.message || 'Verifique suas credenciais e tente novamente.',
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
-      })
-    } finally {
-      setIsLoading(false)
+    } catch (err: any) {
+      setError(err.message)
     }
   }
 
   return (
-    <Box 
-      minH="100vh" 
-      display="flex" 
-      alignItems="center" 
-      justifyContent="center"
-      bg="gray.900"
-    >
-      <Box 
-        w="100%" 
-        maxW="400px" 
-        p={8} 
-        borderRadius="lg" 
-        bg="gray.800"
-        boxShadow="lg"
-      >
-        <VStack spacing={6}>
-          <Image 
-            src="/evernote-logo.png" 
-            alt="Evernote Logo" 
-            h="40px"
-          />
-          <Heading size="lg" color="white">Bem-vindo de volta</Heading>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            Entre na sua conta
+          </h2>
+        </div>
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+              {error}
+            </div>
+          )}
+          <div className="rounded-md shadow-sm -space-y-px">
+            <div>
+              <input
+                type="email"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                placeholder="Email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+              />
+            </div>
+            <div>
+              <input
+                type="password"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                placeholder="Senha"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
 
-          <form onSubmit={handleSubmit} style={{ width: '100%' }}>
-            <VStack spacing={4} align="stretch">
-              <FormControl isRequired>
-                <FormLabel color="gray.200">Email</FormLabel>
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  bg="gray.900"
-                  border="none"
-                  color="white"
-                  _focus={{ ring: 1, ringColor: 'brand.primary' }}
-                />
-              </FormControl>
+          <div>
+            <button
+              type="submit"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Entrar
+            </button>
+          </div>
 
-              <FormControl isRequired>
-                <FormLabel color="gray.200">Senha</FormLabel>
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  bg="gray.900"
-                  border="none"
-                  color="white"
-                  _focus={{ ring: 1, ringColor: 'brand.primary' }}
-                />
-              </FormControl>
-
-              <Button
-                type="submit"
-                colorScheme="brand"
-                size="lg"
-                isLoading={isLoading}
-              >
-                Entrar
-              </Button>
-            </VStack>
-          </form>
-
-          <Text color="gray.300">
-            Não tem uma conta?{' '}
-            <ChakraLink as={Link} to="/register" color="brand.primary">
-              Registre-se
-            </ChakraLink>
-          </Text>
-        </VStack>
-      </Box>
-    </Box>
+          <div className="text-sm text-center">
+            <Link
+              to="/register"
+              className="font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              Não tem uma conta? Registre-se
+            </Link>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 } 

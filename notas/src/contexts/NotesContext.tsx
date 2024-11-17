@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, ReactNode } from 'react'
+import { useAuth } from './AuthContext'
 
 interface Note {
   id: string
+  userId: string
   title: string
   content: string
   createdAt: Date
@@ -29,19 +31,23 @@ interface NotesContextData {
 const NotesContext = createContext<NotesContextData>({} as NotesContextData)
 
 export function NotesProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
   const [notes, setNotes] = useState<Note[]>(() => {
     const storedNotes = localStorage.getItem('@Evernote:notes')
     return storedNotes ? JSON.parse(storedNotes) : []
   })
 
   const [notebooks, setNotebooks] = useState<string[]>(() => {
-    const storedNotebooks = localStorage.getItem('@Evernote:notebooks')
+    const storedNotebooks = localStorage.getItem(`@Evernote:notebooks:${user?.id}`)
     return storedNotebooks ? JSON.parse(storedNotebooks) : ['Geral']
   })
 
   const createNote = (title: string = '', content: string = '', tags: string[] = [], notebook: string = 'Geral') => {
+    if (!user) return ''
+
     const newNote = {
       id: crypto.randomUUID(),
+      userId: user.id,
       title,
       content,
       createdAt: new Date(),
@@ -58,14 +64,20 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }
 
   const deleteNote = (id: string) => {
-    const updatedNotes = notes.filter(note => note.id !== id)
+    if (!user) return
+
+    const updatedNotes = notes.filter(note => 
+      note.id !== id || note.userId !== user.id
+    )
     setNotes(updatedNotes)
     localStorage.setItem('@Evernote:notes', JSON.stringify(updatedNotes))
   }
 
   const updateNote = (id: string, title: string, content: string, tags: string[]) => {
+    if (!user) return
+
     const updatedNotes = notes.map(note => 
-      note.id === id 
+      note.id === id && note.userId === user.id
         ? { 
             ...note, 
             title, 
@@ -81,16 +93,26 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }
 
   const toggleFavorite = (id: string) => {
+    if (!user) return
+
     const updatedNotes = notes.map(note =>
-      note.id === id ? { ...note, favorite: !note.favorite } : note
+      note.id === id && note.userId === user.id 
+        ? { ...note, favorite: !note.favorite } 
+        : note
     )
     setNotes(updatedNotes)
     localStorage.setItem('@Evernote:notes', JSON.stringify(updatedNotes))
   }
 
+  const getUserNotes = () => {
+    if (!user) return []
+    return notes.filter(note => note.userId === user.id)
+  }
+
   const searchNotes = (query: string) => {
+    const userNotes = getUserNotes()
     const searchTerm = query.toLowerCase()
-    return notes.filter(note =>
+    return userNotes.filter(note =>
       note.title.toLowerCase().includes(searchTerm) ||
       note.content.toLowerCase().includes(searchTerm) ||
       note.tags.some(tag => tag.toLowerCase().includes(searchTerm))
@@ -98,49 +120,58 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }
 
   const filterByTag = (tag: string) => {
-    return notes.filter(note => note.tags.includes(tag))
+    const userNotes = getUserNotes()
+    return userNotes.filter(note => note.tags.includes(tag))
   }
 
   const filterByNotebook = (notebook: string) => {
-    return notes.filter(note => note.notebook === notebook)
+    const userNotes = getUserNotes()
+    return userNotes.filter(note => note.notebook === notebook)
   }
 
   const createNotebook = (name: string) => {
-    if (!notebooks.includes(name)) {
-      const updatedNotebooks = [...notebooks, name]
-      setNotebooks(updatedNotebooks)
-      localStorage.setItem('@Evernote:notebooks', JSON.stringify(updatedNotebooks))
-    }
+    if (!user || notebooks.includes(name)) return
+
+    const updatedNotebooks = [...notebooks, name]
+    setNotebooks(updatedNotebooks)
+    localStorage.setItem(`@Evernote:notebooks:${user.id}`, JSON.stringify(updatedNotebooks))
   }
 
   const deleteNotebook = (name: string) => {
-    if (name === 'Geral') return // Não permite deletar o notebook padrão
-    
+    if (!user || name === 'Geral') return
+
     const updatedNotebooks = notebooks.filter(n => n !== name)
     setNotebooks(updatedNotebooks)
-    localStorage.setItem('@Evernote:notebooks', JSON.stringify(updatedNotebooks))
+    localStorage.setItem(`@Evernote:notebooks:${user.id}`, JSON.stringify(updatedNotebooks))
     
-    // Move as notas do notebook deletado para o notebook 'Geral'
-    const updatedNotes = notes.map(note =>
-      note.notebook === name ? { ...note, notebook: 'Geral' } : note
+    const storedNotes = localStorage.getItem('@Evernote:notes')
+    const allNotes = storedNotes ? JSON.parse(storedNotes) : []
+    const updatedNotes = allNotes.map((note: Note) =>
+      note.userId === user.id && note.notebook === name ? { ...note, notebook: 'Geral' } : note
     )
-    setNotes(updatedNotes)
+
+    setNotes(updatedNotes.filter((note: Note) => note.userId === user.id))
     localStorage.setItem('@Evernote:notes', JSON.stringify(updatedNotes))
   }
 
   const removeTagFromAllNotes = (tagId: string) => {
-    const updatedNotes = notes.map(note => ({
-      ...note,
-      tags: note.tags.filter(t => t !== tagId)
-    }))
+    if (!user) return
+
+    const storedNotes = localStorage.getItem('@Evernote:notes')
+    const allNotes = storedNotes ? JSON.parse(storedNotes) : []
+    const updatedNotes = allNotes.map((note: Note) => 
+      note.userId === user.id 
+        ? { ...note, tags: note.tags.filter(t => t !== tagId) }
+        : note
+    )
     
-    setNotes(updatedNotes)
+    setNotes(updatedNotes.filter((note: Note) => note.userId === user.id))
     localStorage.setItem('@Evernote:notes', JSON.stringify(updatedNotes))
   }
 
   return (
     <NotesContext.Provider value={{
-      notes,
+      notes: getUserNotes(),
       notebooks,
       createNote,
       deleteNote,

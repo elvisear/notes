@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { validatePassword } from '../utils/passwordValidation'
 
 interface User {
   id: string
@@ -134,6 +135,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (data: SignUpData) => {
     try {
+      const passwordValidation = validatePassword(data.password)
+      if (!passwordValidation.isStrong) {
+        throw new Error('A senha não atende aos requisitos mínimos de segurança')
+      }
+
       const storedUsers = localStorage.getItem('@Evernote:users')
       const users = storedUsers ? JSON.parse(storedUsers) : []
       
